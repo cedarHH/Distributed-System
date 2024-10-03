@@ -24,6 +24,45 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
+type TaskType int
+
+const (
+	NoTask TaskType = iota
+	TypeMap
+	TypeReduce
+)
+
+type WorkerStatus int
+
+const (
+	WorkerIdle WorkerStatus = iota
+	WorkerBusy
+	WorkerFailed
+)
+
+type Ping struct {
+	Status   WorkerStatus `json:"Status"`
+	TaskType TaskType     `json:"TaskType"`
+	WorkerId string       `json:"WorkerId"`
+	TaskId   int          `json:"TaskId"`
+	FileName string       `json:"FileName"`
+}
+
+type WorkerCommand int
+
+const (
+	waiting WorkerCommand = iota
+	runTask
+	jobFinish
+)
+
+type Pong struct {
+	Command  WorkerCommand `json:"Command"`
+	WorkerId string        `json:"WorkerId"`
+	TaskType TaskType      `json:"TaskType"`
+	TaskId   int           `json:"TaskId"`
+	FileName string        `json:"FileName"`
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the master.
