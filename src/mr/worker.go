@@ -2,6 +2,7 @@ package mr
 
 import (
 	"fmt"
+	"os"
 	"time"
 )
 import "log"
@@ -27,18 +28,46 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	workerId := int64(0)
+	taskId := 0
 	for {
 		reply := Pong{}
 		call("Master.PingPong", &Ping{
-			WorkerId: 0,
+			WorkerId: workerId,
 			Status:   0,
+			// todo
 		}, &reply)
-		switch reply.Status {
-		case 0: // 0:waiting
+		switch reply.Command {
+		case waiting:
 			time.Sleep(time.Second)
-		case 1: // 1:map task
-		case 2: // 2:reduce task
-		case 3: // 3:job finish
+		case runTask:
+			workerId = reply.WorkerId
+			if reply.TaskType == MapTask {
+				taskId = reply.TaskId
+				_ = taskId
+				file, err := os.Open(reply.FileName)
+				buf := make([]byte, 4096)
+				_, err = file.Read(buf)
+				err = file.Close()
+				if err != nil {
+					// todo
+					continue
+				}
+				if err != nil {
+					// todo
+					continue
+				}
+				if err != nil {
+					// todo
+					continue
+				}
+				result := mapf(reply.FileName, string(buf))
+				//todo
+				_ = result
+			} else if reply.TaskType == ReduceTask {
+
+			}
+		case jobFinish:
 			break
 		}
 	}

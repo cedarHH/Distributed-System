@@ -28,8 +28,8 @@ type TaskType int
 
 const (
 	NoTask TaskType = iota
-	TypeMap
-	TypeReduce
+	MapTask
+	ReduceTask
 )
 
 type WorkerStatus int
@@ -43,7 +43,7 @@ const (
 type Ping struct {
 	Status   WorkerStatus `json:"Status"`
 	TaskType TaskType     `json:"TaskType"`
-	WorkerId string       `json:"WorkerId"`
+	WorkerId int64        `json:"WorkerId"`
 	TaskId   int          `json:"TaskId"`
 	FileName string       `json:"FileName"`
 }
@@ -58,7 +58,7 @@ const (
 
 type Pong struct {
 	Command  WorkerCommand `json:"Command"`
-	WorkerId string        `json:"WorkerId"`
+	WorkerId int64         `json:"WorkerId"`
 	TaskType TaskType      `json:"TaskType"`
 	TaskId   int           `json:"TaskId"`
 	FileName string        `json:"FileName"`

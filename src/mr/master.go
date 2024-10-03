@@ -3,13 +3,19 @@ package mr
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
-	"github.com/google/uuid"
 )
 import "net"
 import "os"
 import "net/rpc"
 import "net/http"
+
+var counter int64 = 0
+
+func generateIncrementalIntUUID() int64 {
+	return atomic.AddInt64(&counter, 1)
+}
 
 type TaskStatus int
 
@@ -29,7 +35,7 @@ type WorkerEntry struct {
 
 type TaskEntry struct {
 	TaskID   int        // Task ID
-	WorkerID string     // Worker ID of the task being performed
+	WorkerID int64      // Worker ID of the task being performed
 	TaskType TaskType   // Task type
 	Status   TaskStatus // Idle, InProgress, Completed, Failed
 }
@@ -67,13 +73,13 @@ func (m *Master) taskScheduler() {
 		for fileIdx := range m.files {
 			m.taskChannel <- TaskEntry{
 				TaskID:   fileIdx,
-				TaskType: TypeMap,
+				TaskType: MapTask,
 				Status:   TaskIdle,
 			}
 		}
 	}()
 	for task := range m.taskCompleteChan {
-		if task.Status == TaskCompleted && task.TaskType == TypeMap {
+		if task.Status == TaskCompleted && task.TaskType == MapTask {
 			m.mapFinished++
 		}
 		if m.mapFinished == m.nMap {
@@ -84,13 +90,13 @@ func (m *Master) taskScheduler() {
 		for reduceNum := range m.nReduce {
 			m.taskChannel <- TaskEntry{
 				TaskID:   reduceNum,
-				TaskType: TypeReduce,
+				TaskType: ReduceTask,
 				Status:   TaskIdle,
 			}
 		}
 	}()
 	for task := range m.taskCompleteChan {
-		if task.Status == TaskCompleted && task.TaskType == TypeReduce {
+		if task.Status == TaskCompleted && task.TaskType == ReduceTask {
 			m.reduceFinished++
 		}
 		if m.reduceFinished == m.nReduce {
@@ -114,13 +120,27 @@ func (m *Master) PingPong(args *Ping, reply *Pong) error {
 }
 
 func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
-	if m.mapFinished < m.nMap {
-		task := <-m.taskChannel
-		if args.WorkerId == "" {
-			reply.WorkerId =
+	assignTask := func(task TaskEntry) {
+		if args.WorkerId == 0 {
+			reply.WorkerId = generateIncrementalIntUUID()
 		}
-	} else if m.reduceFinished < m.nReduce {
+		reply.Command = runTask
+		reply.TaskId = task.TaskID
+		reply.TaskType = task.TaskType
+		if task.TaskType == MapTask {
+			reply.FileName = m.files[task.TaskID]
+		}
+	}
 
+	if m.mapFinished < m.nMap || m.reduceFinished < m.nReduce {
+		select {
+		case task := <-m.taskChannel:
+			assignTask(task)
+		default:
+			reply.Command = waiting
+		}
+	} else {
+		reply.Command = jobFinish
 	}
 }
 
