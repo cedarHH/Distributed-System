@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,7 @@ type Master struct {
 	taskChannel      chan TaskEntry // Channels for Task Assignments
 	taskCompleteChan chan TaskEntry // Task Completion Notification Channel
 	heartbeatChan    chan string    // Worker heartbeat channel for worker status notification
+	done             chan struct{}
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -63,6 +65,7 @@ func NewMaster(files []string, nReduce int) *Master {
 		taskChannel:      make(chan TaskEntry),
 		taskCompleteChan: make(chan TaskEntry),
 		heartbeatChan:    make(chan string),
+		done:             make(chan struct{}),
 	}
 	go m.taskScheduler()
 	return &m
@@ -78,8 +81,10 @@ func (m *Master) taskScheduler() {
 			}
 		}
 	}()
+	fmt.Println("waiting map task completed")
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == MapTask {
+			fmt.Println("Map Finished", m.mapFinished)
 			m.mapFinished++
 		}
 		if m.mapFinished == m.nMap {
@@ -97,14 +102,18 @@ func (m *Master) taskScheduler() {
 	}()
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == ReduceTask {
+			fmt.Println("Reduce Finished", m.reduceFinished)
 			m.reduceFinished++
 		}
 		if m.reduceFinished == m.nReduce {
 			break
 		}
 	}
-	close(m.taskChannel)
-	close(m.taskCompleteChan)
+	fmt.Println("finished")
+	//close(m.taskChannel)
+	//close(m.taskCompleteChan)
+	time.Sleep(time.Second * 3)
+	m.done <- struct{}{}
 }
 
 func (m *Master) PingPong(args *Ping, reply *Pong) error {
@@ -113,6 +122,8 @@ func (m *Master) PingPong(args *Ping, reply *Pong) error {
 		m.handleIdleWorker(args, reply)
 	case WorkerBusy: //working
 		m.handleHeartbeat(args, reply)
+	case WorkerCompleted:
+		m.handleCompletedWorker(args, reply)
 	case WorkerFailed: // fatal
 		m.handleFatal(args, reply)
 	}
@@ -136,6 +147,7 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 		select {
 		case task := <-m.taskChannel:
 			assignTask(task)
+			fmt.Println("assign task:", task.TaskID)
 		default:
 			reply.Command = waiting
 		}
@@ -145,11 +157,35 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 }
 
 func (m *Master) handleHeartbeat(args *Ping, reply *Pong) {
+	*reply = Pong{
+		Command:  inProgress,
+		WorkerId: args.WorkerId,
+		TaskType: args.TaskType,
+		TaskId:   args.TaskId,
+		FileName: args.FileName,
+	}
+}
 
+func (m *Master) handleCompletedWorker(args *Ping, reply *Pong) {
+	go func() {
+		task := TaskEntry{
+			TaskID:   args.TaskId,
+			WorkerID: args.WorkerId,
+			TaskType: args.TaskType,
+			Status:   TaskCompleted,
+		}
+		m.taskCompleteChan <- task
+	}()
+	fmt.Println("receive a completed task", args.TaskId)
+	*reply = Pong{
+		Command:  waiting,
+		WorkerId: args.WorkerId,
+		TaskType: NoTask,
+	}
 }
 
 func (m *Master) handleFatal(args *Ping, reply *Pong) {
-
+	// todo
 }
 
 // an example RPC handler.
@@ -176,11 +212,14 @@ func (m *Master) server() {
 
 // main/mrmaster.go calls Done() periodically to find out
 // if the entire job has finished.
-func (m *Master) Done() bool {
-	ret := false
-
+func (m *Master) Done() (ret bool) {
 	// Your code here.
-
+	select {
+	case <-m.done:
+		ret = true
+	default:
+		ret = false
+	}
 	return ret
 }
 

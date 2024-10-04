@@ -37,6 +37,7 @@ type WorkerStatus int
 const (
 	WorkerIdle WorkerStatus = iota
 	WorkerBusy
+	WorkerCompleted
 	WorkerFailed
 )
 
@@ -53,6 +54,7 @@ type WorkerCommand int
 const (
 	waiting WorkerCommand = iota
 	runTask
+	inProgress
 	jobFinish
 )
 

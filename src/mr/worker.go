@@ -2,7 +2,6 @@ package mr
 
 import (
 	"fmt"
-	"os"
 	"time"
 )
 import "log"
@@ -28,49 +27,63 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-	workerId := int64(0)
-	taskId := 0
+	var (
+		status   = WorkerIdle
+		taskType = NoTask
+		workerId int64
+		taskId   int
+		fileName string
+		request  *Ping
+	)
+
+	runMapTask := func(reply *Pong) {
+		fmt.Println("map task:", reply.TaskId, "filename", reply.FileName)
+		time.Sleep(time.Second)
+		status = WorkerCompleted
+	}
+
+	runReduceTask := func(reply *Pong) {
+		fmt.Println("reduce task:", reply.TaskId, "filename", reply.FileName)
+		time.Sleep(time.Second)
+		status = WorkerCompleted
+	}
+
 	for {
-		reply := Pong{}
-		call("Master.PingPong", &Ping{
+		request = &Ping{
+			Status:   status,
+			TaskType: taskType,
 			WorkerId: workerId,
-			Status:   0,
-			// todo
-		}, &reply)
+			TaskId:   taskId,
+			FileName: fileName,
+		}
+		reply := Pong{}
+		call("Master.PingPong", request, &reply)
 		switch reply.Command {
 		case waiting:
 			time.Sleep(time.Second)
-		case runTask:
+			status = WorkerIdle
 			workerId = reply.WorkerId
+			taskId = reply.TaskId
+			fileName = reply.FileName
+		case runTask:
+			status = WorkerBusy
+			taskType = reply.TaskType
+			workerId = reply.WorkerId
+			taskId = reply.TaskId
+			fileName = reply.FileName
 			if reply.TaskType == MapTask {
-				taskId = reply.TaskId
-				_ = taskId
-				file, err := os.Open(reply.FileName)
-				buf := make([]byte, 4096)
-				_, err = file.Read(buf)
-				err = file.Close()
-				if err != nil {
-					// todo
-					continue
-				}
-				if err != nil {
-					// todo
-					continue
-				}
-				if err != nil {
-					// todo
-					continue
-				}
-				result := mapf(reply.FileName, string(buf))
-				//todo
-				_ = result
+				go runMapTask(&reply)
 			} else if reply.TaskType == ReduceTask {
-
+				go runReduceTask(&reply)
 			}
+		case inProgress:
+			time.Sleep(time.Second)
 		case jobFinish:
-			break
+			fmt.Println("jobFinish")
+			return
 		}
 	}
+
 	// uncomment to send the Example RPC to the master.
 	// CallExample()
 
