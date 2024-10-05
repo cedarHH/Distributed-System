@@ -64,6 +64,8 @@ type Pong struct {
 	TaskType TaskType      `json:"TaskType"`
 	TaskId   int           `json:"TaskId"`
 	FileName string        `json:"FileName"`
+	NReduce  int           `json:"NReduce"`
+	NMap     int           `json:"NMap"`
 }
 
 // Cook up a unique-ish UNIX-domain socket name

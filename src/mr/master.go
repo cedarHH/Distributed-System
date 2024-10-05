@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -81,10 +80,10 @@ func (m *Master) taskScheduler() {
 			}
 		}
 	}()
-	fmt.Println("waiting map task completed")
+	// fmt.Println("waiting map task completed")
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == MapTask {
-			fmt.Println("Map Finished", m.mapFinished)
+			// fmt.Println("Map Finished", m.mapFinished)
 			m.mapFinished++
 		}
 		if m.mapFinished == m.nMap {
@@ -102,17 +101,17 @@ func (m *Master) taskScheduler() {
 	}()
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == ReduceTask {
-			fmt.Println("Reduce Finished", m.reduceFinished)
+			// fmt.Println("Reduce Finished", m.reduceFinished)
 			m.reduceFinished++
 		}
 		if m.reduceFinished == m.nReduce {
 			break
 		}
 	}
-	fmt.Println("finished")
-	//close(m.taskChannel)
-	//close(m.taskCompleteChan)
-	time.Sleep(time.Second * 3)
+	// fmt.Println("finished")
+	// close(m.taskChannel)
+	// close(m.taskCompleteChan)
+	time.Sleep(200 * time.Millisecond)
 	m.done <- struct{}{}
 }
 
@@ -138,6 +137,8 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 		reply.Command = runTask
 		reply.TaskId = task.TaskID
 		reply.TaskType = task.TaskType
+		reply.NReduce = m.nReduce
+		reply.NMap = m.nMap
 		if task.TaskType == MapTask {
 			reply.FileName = m.files[task.TaskID]
 		}
@@ -147,9 +148,10 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 		select {
 		case task := <-m.taskChannel:
 			assignTask(task)
-			fmt.Println("assign task:", task.TaskID)
+			// fmt.Println("assign task:", task.TaskID)
 		default:
 			reply.Command = waiting
+			// fmt.Println("waiting")
 		}
 	} else {
 		reply.Command = jobFinish
@@ -167,21 +169,19 @@ func (m *Master) handleHeartbeat(args *Ping, reply *Pong) {
 }
 
 func (m *Master) handleCompletedWorker(args *Ping, reply *Pong) {
-	go func() {
+	go func(taskId int, workerId int64, taskType TaskType) {
 		task := TaskEntry{
-			TaskID:   args.TaskId,
-			WorkerID: args.WorkerId,
-			TaskType: args.TaskType,
+			TaskID:   taskId,
+			WorkerID: workerId,
+			TaskType: taskType,
 			Status:   TaskCompleted,
 		}
 		m.taskCompleteChan <- task
-	}()
-	fmt.Println("receive a completed task", args.TaskId)
-	*reply = Pong{
-		Command:  waiting,
-		WorkerId: args.WorkerId,
-		TaskType: NoTask,
-	}
+	}(args.TaskId, args.WorkerId, args.TaskType)
+	// fmt.Println("receive a completed task", args.TaskId)
+	args.Status = WorkerIdle
+	reply.WorkerId = args.WorkerId
+	m.handleIdleWorker(args, reply)
 }
 
 func (m *Master) handleFatal(args *Ping, reply *Pong) {
