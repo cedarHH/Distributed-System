@@ -60,6 +60,7 @@ const (
 
 type Pong struct {
 	Command  WorkerCommand `json:"Command"`
+	Status   WorkerStatus  `json:"Status"`
 	WorkerId int64         `json:"WorkerId"`
 	TaskType TaskType      `json:"TaskType"`
 	TaskId   int           `json:"TaskId"`

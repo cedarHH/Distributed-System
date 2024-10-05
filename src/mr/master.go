@@ -27,9 +27,10 @@ const (
 )
 
 type WorkerEntry struct {
-	ID       string       // Worker ID
+	ID       int64        // Worker ID
 	Status   WorkerStatus // Idle, Busy, or Failed
 	TaskID   int          // Task ID
+	TaskType TaskType     // Task type
 	LastSeen time.Time    // Last heartbeat time
 }
 
@@ -71,6 +72,7 @@ func NewMaster(files []string, nReduce int) *Master {
 }
 
 func (m *Master) taskScheduler() {
+	go m.Daemon()
 	go func() {
 		for fileIdx := range m.files {
 			m.taskChannel <- TaskEntry{
@@ -83,7 +85,7 @@ func (m *Master) taskScheduler() {
 	// fmt.Println("waiting map task completed")
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == MapTask {
-			// fmt.Println("Map Finished", m.mapFinished)
+			// fmt.Println("Map Finished:", task.TaskID)
 			m.mapFinished++
 		}
 		if m.mapFinished == m.nMap {
@@ -101,7 +103,7 @@ func (m *Master) taskScheduler() {
 	}()
 	for task := range m.taskCompleteChan {
 		if task.Status == TaskCompleted && task.TaskType == ReduceTask {
-			// fmt.Println("Reduce Finished", m.reduceFinished)
+			// fmt.Println("Reduce Finished", task.TaskID)
 			m.reduceFinished++
 		}
 		if m.reduceFinished == m.nReduce {
@@ -115,6 +117,29 @@ func (m *Master) taskScheduler() {
 	m.done <- struct{}{}
 }
 
+func (m *Master) Daemon() {
+	for {
+		m.workers.Range(func(key, value any) bool {
+			entry, ok := value.(*WorkerEntry)
+			if !ok {
+				return true
+			}
+
+			if entry.Status == WorkerBusy && time.Since(entry.LastSeen) > 500*time.Millisecond {
+				// fmt.Printf("crash, type:%v, id:%v\n", entry.TaskType, entry.TaskID)
+				m.taskChannel <- TaskEntry{
+					TaskID:   entry.TaskID,
+					TaskType: entry.TaskType,
+					Status:   TaskIdle,
+				}
+				m.workers.Delete(entry.ID)
+			}
+			return true
+		})
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func (m *Master) PingPong(args *Ping, reply *Pong) error {
 	switch args.Status {
 	case WorkerIdle: //idle
@@ -126,15 +151,21 @@ func (m *Master) PingPong(args *Ping, reply *Pong) error {
 	case WorkerFailed: // fatal
 		m.handleFatal(args, reply)
 	}
+	if actual, exists := m.workers.Load(reply.WorkerId); exists == true {
+		entry := actual.(*WorkerEntry)
+		entry.Status = reply.Status
+		entry.TaskID = reply.TaskId
+		entry.TaskType = reply.TaskType
+		entry.LastSeen = time.Now()
+	}
 	return nil
 }
 
 func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 	assignTask := func(task TaskEntry) {
-		if args.WorkerId == 0 {
-			reply.WorkerId = generateIncrementalIntUUID()
-		}
+		// fmt.Println("assign task:", task.TaskID)
 		reply.Command = runTask
+		reply.Status = WorkerBusy
 		reply.TaskId = task.TaskID
 		reply.TaskType = task.TaskType
 		reply.NReduce = m.nReduce
@@ -144,6 +175,17 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 		}
 	}
 
+	if args.WorkerId == 0 {
+		args.WorkerId = generateIncrementalIntUUID()
+		m.workers.Store(args.WorkerId, &WorkerEntry{
+			ID:       args.WorkerId,
+			Status:   WorkerIdle,
+			TaskID:   0,
+			TaskType: NoTask,
+			LastSeen: time.Now(),
+		})
+	}
+	reply.WorkerId = args.WorkerId
 	if m.mapFinished < m.nMap || m.reduceFinished < m.nReduce {
 		select {
 		case task := <-m.taskChannel:
@@ -151,16 +193,19 @@ func (m *Master) handleIdleWorker(args *Ping, reply *Pong) {
 			// fmt.Println("assign task:", task.TaskID)
 		default:
 			reply.Command = waiting
+			reply.Status = WorkerIdle
 			// fmt.Println("waiting")
 		}
 	} else {
 		reply.Command = jobFinish
+		reply.Status = WorkerCompleted
 	}
 }
 
 func (m *Master) handleHeartbeat(args *Ping, reply *Pong) {
 	*reply = Pong{
 		Command:  inProgress,
+		Status:   WorkerBusy,
 		WorkerId: args.WorkerId,
 		TaskType: args.TaskType,
 		TaskId:   args.TaskId,

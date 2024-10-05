@@ -91,7 +91,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			file, err := os.Open(iName)
 			if err != nil {
-				log.Fatalf("cannot open %v", file)
+				log.Fatalf("cannot open %v %s", file, iName)
 			}
 			dec := json.NewDecoder(file)
 			for {
