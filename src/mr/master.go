@@ -2,14 +2,14 @@ package mr
 
 import (
 	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 )
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
 
 var counter int64 = 0
 
@@ -111,8 +111,8 @@ func (m *Master) taskScheduler() {
 		}
 	}
 	// fmt.Println("finished")
-	// close(m.taskChannel)
-	// close(m.taskCompleteChan)
+	close(m.taskChannel)
+	close(m.taskCompleteChan)
 	time.Sleep(200 * time.Millisecond)
 	m.done <- struct{}{}
 }
